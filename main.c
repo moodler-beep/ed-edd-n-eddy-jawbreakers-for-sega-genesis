@@ -1,181 +1,130 @@
-#include <gba.h>
-#include <stdbool.h>
-#include <stdint.h>
+#include <genesis.h>
 
-#define SCREEN_W 240
-#define SCREEN_H 160
+#define SCREEN_W 320
+#define SCREEN_H 224
 #define TARGET_GEMS 10
 #define MAX_LIVES 3
 
-#define COLOR(r, g, b) ((u16)(((r) & 31) | (((g) & 31) << 5) | (((b) & 31) << 10)))
-
-static const u16 sky = COLOR(23, 27, 31);
-static const u16 dark = COLOR(3, 5, 10);
-static const u16 cream = COLOR(31, 29, 21);
-static const u16 teal = COLOR(5, 24, 25);
-static const u16 green = COLOR(10, 28, 12);
-static const u16 gold = COLOR(31, 23, 5);
-static const u16 red = COLOR(30, 7, 7);
-static const u16 pink = COLOR(31, 12, 19);
-
-static const u8 font[36][7] = {
-    {0, 0, 0, 0, 0, 0, 0},
-    {14, 17, 17, 31, 17, 17, 17}, {30, 17, 17, 30, 17, 17, 30},
-    {14, 17, 16, 16, 16, 17, 14}, {30, 17, 17, 17, 17, 17, 30},
-    {31, 16, 16, 30, 16, 16, 31}, {31, 16, 16, 30, 16, 16, 16},
-    {14, 17, 16, 23, 17, 17, 15}, {17, 17, 17, 31, 17, 17, 17},
-    {14, 4, 4, 4, 4, 4, 14}, {7, 2, 2, 2, 18, 18, 12},
-    {17, 18, 20, 24, 20, 18, 17}, {16, 16, 16, 16, 16, 16, 31},
-    {17, 27, 21, 21, 17, 17, 17}, {17, 25, 21, 19, 17, 17, 17},
-    {14, 17, 17, 17, 17, 17, 14}, {30, 17, 17, 30, 16, 16, 16},
-    {14, 17, 17, 17, 21, 18, 13}, {30, 17, 17, 30, 20, 18, 17},
-    {15, 16, 16, 14, 1, 1, 30}, {31, 4, 4, 4, 4, 4, 4},
-    {17, 17, 17, 17, 17, 17, 14}, {17, 17, 17, 17, 17, 10, 4},
-    {17, 17, 17, 21, 21, 21, 10}, {17, 17, 10, 4, 10, 17, 17},
-    {17, 17, 10, 4, 4, 4, 4}, {31, 1, 2, 4, 8, 16, 31},
-    {14, 17, 19, 21, 25, 17, 14}, {4, 12, 4, 4, 4, 4, 14},
-    {14, 17, 1, 2, 4, 8, 31}, {30, 1, 1, 14, 1, 1, 30},
-    {2, 6, 10, 18, 31, 2, 2}, {31, 16, 16, 30, 1, 1, 30},
-    {14, 16, 16, 30, 17, 17, 14}, {31, 1, 2, 4, 8, 8, 8},
-    {14, 17, 17, 14, 17, 17, 14}, {14, 17, 17, 15, 1, 1, 14},
-};
-
-static const char glyphs[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-static u16 *const framebuffer = (u16 *)VRAM;
-
-static void wait_vblank(void) {
-    while (REG_VCOUNT >= 160) {
-    }
-    while (REG_VCOUNT < 160) {
-    }
-}
-
-static void clear_screen(u16 color) {
-    for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) {
-        framebuffer[i] = color;
-    }
-}
-
-static void rect(int x, int y, int width, int height, u16 color) {
-    if (x < 0) {
-        width += x;
-        x = 0;
-    }
-    if (y < 0) {
-        height += y;
-        y = 0;
-    }
-    if (x + width > SCREEN_W) width = SCREEN_W - x;
-    if (y + height > SCREEN_H) height = SCREEN_H - y;
-    if (width <= 0 || height <= 0) return;
-
-    for (int row = 0; row < height; ++row) {
-        u16 *line = framebuffer + (y + row) * SCREEN_W + x;
-        for (int col = 0; col < width; ++col) line[col] = color;
-    }
-}
-
-static void text(int x, int y, const char *value, u16 color, int scale) {
-    for (; *value; ++value, x += 6 * scale) {
-        char c = *value;
-        if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
-        int index = 0;
-        while (glyphs[index] && glyphs[index] != c) ++index;
-        if (!glyphs[index]) continue;
-        for (int row = 0; row < 7; ++row) {
-            for (int col = 0; col < 5; ++col) {
-                if (font[index][row] & (1u << (4 - col))) {
-                    rect(x + col * scale, y + row * scale, scale, scale, color);
-                }
-            }
-        }
-    }
-}
+#define COL_SKY      PAL0 + 1
+#define COL_DARK     PAL0 + 2
+#define COL_CREAM    PAL0 + 3
+#define COL_TEAL     PAL0 + 4
+#define COL_GREEN    PAL0 + 5
+#define COL_GOLD     PAL0 + 6
+#define COL_RED      PAL0 + 7
+#define COL_PINK     PAL0 + 8
 
 typedef struct {
-    int x;
-    int y;
-    int speed;
+    s16 x;
+    s16 y;
+    u16 speed;
     bool bomb;
     bool active;
 } Item;
 
-static int basket_x = 104;
+typedef enum { TITLE, PLAYING, WON, LOST } GameState;
+
+static const u16 palette[] = {
+    0x0000, 0x0EEE, 0x0002, 0x0EEE, 0x0A88, 0x0480,
+    0x0ED0, 0x0A00, 0x0E22
+};
+
+static int basket_x = 140;
 static int gems = 0;
 static int lives = MAX_LIVES;
 static int frame = 0;
-static uint32_t random_state = 0xC0FFEEu;
+static u32 random_state = 0xC0FFEEu;
 static Item item;
-
-typedef enum { TITLE, PLAYING, WON, LOST } GameState;
 static GameState state = TITLE;
 
-static uint32_t next_random(void) {
+static u32 next_random(void) {
     random_state = random_state * 1664525u + 1013904223u;
     return random_state;
 }
 
 static void reset_game(void) {
-    basket_x = 104;
+    basket_x = 140;
     gems = 0;
     lives = MAX_LIVES;
     frame = 0;
-    item.active = false;
+    item.active = FALSE;
     state = PLAYING;
+}
+
+static void spawn_item(void) {
+    item.x = 10 + (s16)(next_random() % (SCREEN_W - 34));
+    item.y = 32;
+    item.speed = 1 + gems / 4;
+    item.bomb = (next_random() % 5u) == 0u;
+    item.active = TRUE;
+}
+
+static void draw_text_centered(const char *text, s16 y) {
+    s16 len = strlen(text);
+    s16 x = (SCREEN_W / 8 - len) / 2;
+    VDP_drawText(text, x, y / 8);
+}
+
+static void draw_title(void) {
+    VDP_clearPlane(BG_A, TRUE);
+    VDP_drawFillRect(0, 0, SCREEN_W, SCREEN_H, COL_SKY);
+    VDP_drawFillRect(0, 164, SCREEN_W, 60, COL_GREEN);
+    VDP_drawFillRect(0, 164, SCREEN_W, 4, COL_TEAL);
+
+    VDP_setTextPalette(PAL0);
+    VDP_setTextPalette(PAL0);
+    draw_text_centered("POCKET CATCH", 52);
+    draw_text_centered("SEGA GENESIS", 92);
+    VDP_drawText("PRESS START", 14, 21);
+}
+
+static void draw_hud(void) {
+    VDP_drawFillRect(0, 0, SCREEN_W, 24, COL_DARK);
+    VDP_drawText("GEMS", 1, 1);
+    VDP_drawFillRect(48, 8, TARGET_GEMS * 10, 8, COL_TEAL);
+    for (int i = 0; i < gems; ++i)
+        VDP_drawFillRect(50 + i * 10, 10, 7, 4, COL_GOLD);
+
+    VDP_drawText("LIVES", 30, 1);
+    for (int i = 0; i < lives; ++i)
+        VDP_drawFillRect(276 + i * 14, 8, 9, 8, COL_RED);
 }
 
 static void draw_item(void) {
     if (!item.active) return;
-    if (item.bomb) {
-        rect(item.x + 3, item.y, 8, 10, dark);
-        rect(item.x, item.y + 3, 14, 7, dark);
-        rect(item.x + 4, item.y + 3, 2, 2, pink);
-        rect(item.x + 9, item.y + 3, 2, 2, pink);
-    } else {
-        rect(item.x + 5, item.y, 6, 4, cream);
-        rect(item.x + 2, item.y + 3, 12, 7, gold);
-        rect(item.x + 5, item.y + 10, 6, 4, cream);
-        rect(item.x + 6, item.y + 5, 4, 3, pink);
-    }
-}
 
-static void draw_hud(void) {
-    rect(0, 0, SCREEN_W, 24, dark);
-    text(8, 8, "GEMS", cream, 1);
-    rect(42, 8, TARGET_GEMS * 9, 8, teal);
-    for (int i = 0; i < gems; ++i) rect(44 + i * 9, 10, 6, 4, gold);
-    text(158, 8, "LIVES", cream, 1);
-    for (int i = 0; i < lives; ++i) {
-        rect(193 + i * 13, 8, 9, 8, red);
-        rect(195 + i * 13, 6, 5, 3, pink);
+    if (item.bomb) {
+        VDP_drawFillRect(item.x + 4, item.y, 12, 14, COL_DARK);
+        VDP_drawFillRect(item.x, item.y + 5, 20, 10, COL_DARK);
+        VDP_drawFillRect(item.x + 5, item.y + 6, 3, 3, COL_PINK);
+        VDP_drawFillRect(item.x + 12, item.y + 6, 3, 3, COL_PINK);
+    } else {
+        VDP_drawFillRect(item.x + 6, item.y, 9, 5, COL_CREAM);
+        VDP_drawFillRect(item.x + 3, item.y + 4, 16, 10, COL_GOLD);
+        VDP_drawFillRect(item.x + 7, item.y + 14, 8, 5, COL_CREAM);
+        VDP_drawFillRect(item.x + 9, item.y + 7, 5, 4, COL_PINK);
     }
 }
 
 static void draw_playfield(void) {
-    clear_screen(sky);
-    rect(0, 24, SCREEN_W, 1, cream);
-    rect(0, 145, SCREEN_W, 15, green);
-    rect(0, 145, SCREEN_W, 2, teal);
+    VDP_clearPlane(BG_A, TRUE);
+    VDP_drawFillRect(0, 24, SCREEN_W, 140, COL_SKY);
+    VDP_drawFillRect(0, 24, SCREEN_W, 2, COL_CREAM);
+    VDP_drawFillRect(0, 202, SCREEN_W, 22, COL_GREEN);
+    VDP_drawFillRect(0, 202, SCREEN_W, 3, COL_TEAL);
+
     draw_hud();
     draw_item();
-    rect(basket_x, 132, 32, 5, cream);
-    rect(basket_x + 2, 137, 28, 6, gold);
-    rect(basket_x + 5, 139, 22, 2, red);
+    VDP_drawFillRect(basket_x, 184, 44, 7, COL_CREAM);
+    VDP_drawFillRect(basket_x + 3, 191, 38, 9, COL_GOLD);
+    VDP_drawFillRect(basket_x + 7, 194, 30, 3, COL_RED);
 }
 
-static void spawn_item(void) {
-    item.x = 10 + (int)(next_random() % (SCREEN_W - 24));
-    item.y = 31;
-    item.speed = 1 + gems / 4;
-    item.bomb = (next_random() % 5u) == 0u;
-    item.active = true;
-}
-
-static void update_game(u16 keys) {
-    if (keys & KEY_LEFT) basket_x -= 3;
-    if (keys & KEY_RIGHT) basket_x += 3;
+static void update_game(u16 joy) {
+    if (joy & BUTTON_LEFT) basket_x -= 4;
+    if (joy & BUTTON_RIGHT) basket_x += 4;
     if (basket_x < 0) basket_x = 0;
-    if (basket_x > SCREEN_W - 32) basket_x = SCREEN_W - 32;
+    if (basket_x > SCREEN_W - 44) basket_x = SCREEN_W - 44;
 
     if (!item.active) {
         if (++frame >= 30) {
@@ -186,59 +135,55 @@ static void update_game(u16 keys) {
     }
 
     item.y += item.speed;
-    const bool overlaps = item.x + 14 >= basket_x && item.x <= basket_x + 32;
-    if (item.y + 14 >= 132 && overlaps) {
+    bool overlaps = item.x + 20 >= basket_x && item.x <= basket_x + 44;
+    if (item.y + 18 >= 184 && overlaps) {
         if (item.bomb) {
             --lives;
         } else if (++gems >= TARGET_GEMS) {
             state = WON;
         }
-        item.active = false;
-    } else if (item.y > 145) {
+        item.active = FALSE;
+    } else if (item.y > 202) {
         if (!item.bomb) --lives;
-        item.active = false;
+        item.active = FALSE;
     }
 
     if (lives <= 0) state = LOST;
 }
 
-static void draw_title(void) {
-    clear_screen(sky);
-    rect(0, 116, SCREEN_W, 44, green);
-    rect(0, 116, SCREEN_W, 3, teal);
-    text(48, 34, "POCKET", gold, 3);
-    text(42, 62, "CATCH", cream, 3);
-    text(72, 101, "GBA GAME", cream, 1);
-    rect(95, 125, 50, 8, gold);
-    rect(99, 127, 42, 4, cream);
-    text(54, 143, "PRESS START", cream, 1);
-}
-
 static void draw_end_screen(bool won) {
-    clear_screen(won ? teal : dark);
-    text(won ? 66 : 72, 43, won ? "YOU WIN" : "GAME OVER", won ? gold : pink, 2);
-    text(60, 75, "GEMS", cream, 1);
-    for (int i = 0; i < gems; ++i) rect(94 + i * 10, 75, 7, 7, gold);
-    text(54, 111, "PRESS START", cream, 1);
+    VDP_clearPlane(BG_A, TRUE);
+    VDP_drawFillRect(0, 0, SCREEN_W, SCREEN_H, won ? COL_TEAL : COL_DARK);
+    draw_text_centered(won ? "YOU WIN" : "GAME OVER", 48);
+
+    VDP_drawText("GEMS", 12, 10);
+    for (int i = 0; i < gems; ++i)
+        VDP_drawFillRect(64 + i * 12, 78, 9, 9, COL_GOLD);
+
+    VDP_drawText("PRESS START", 13, 19);
 }
 
-int main(void) {
-    REG_DISPCNT = MODE3 | BG2_ENABLE;
+int main(bool hard) {
+    VDP_setScreenWidth320();
+    VDP_setPalette(PAL0, palette);
+    VDP_setTextPalette(PAL0);
 
-    while (1) {
-        wait_vblank();
-        scanKeys();
-        const u16 keys = keysHeld();
+    while (TRUE) {
+        u16 joy = JOY_readJoypad(JOY_1);
 
         if (state == TITLE) {
             draw_title();
-            if (keys & KEY_START) reset_game();
+            if (joy & BUTTON_START) reset_game();
         } else if (state == PLAYING) {
-            update_game(keys);
+            update_game(joy);
             draw_playfield();
         } else {
             draw_end_screen(state == WON);
-            if (keys & KEY_START) reset_game();
+            if (joy & BUTTON_START) reset_game();
         }
+
+        SYS_doVBlankProcess();
     }
+
+    return 0;
 }
